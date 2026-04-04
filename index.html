@@ -185,6 +185,7 @@
 
         <section class="center-panel">
             <h1 class="server-title" id="serverName">Connecting to server</h1>
+            <div class="mode-line" id="statusLine">Preparing server files...</div>
             <div class="download-feed" id="downloadFeed"></div>
         </section>
 
@@ -194,40 +195,89 @@
     <script>
         const MAX_VISIBLE_ROWS = 10;
         const DOWNLOAD_ACTIVE_LABEL = "Downloading";
-        const DOWNLOAD_DONE_LABEL = "Installed";
+        const DOWNLOAD_DONE_LABEL = "Downloaded";
+        const VERIFY_ACTIVE_LABEL = "Checking";
+        const VERIFY_DONE_LABEL = "Already on client";
+        const STATUS_ACTIVE_LABEL = "In progress";
 
         const loadingState = {
             serverName: "Orphan`s City",
+            filesTotal: null,
             filesNeeded: null,
+            currentStatus: "",
+            currentMapName: null,
+            mapImageRequestId: 0,
             activeDownload: null,
             completedDownloads: []
         };
 
+        function normalizeMapName(mapName) {
+            if (!mapName) {
+                return "";
+            }
+
+            return decodeURIComponent(String(mapName))
+                .trim()
+                .replace(/\\/g, "/")
+                .split("/")
+                .pop()
+                .replace(/\.(bsp|png|jpg|jpeg)$/i, "")
+                .toLowerCase();
+        }
+
+        function getMapNameFromUrl() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+
+                return normalizeMapName(
+                    params.get("map") ||
+                    params.get("Map") ||
+                    params.get("mapname") ||
+                    params.get("MapName")
+                );
+            }
+            catch (error) {
+                return "";
+            }
+        }
+
         function setMapImage(mapName) {
             const backgroundImage = document.getElementById("backgroundImage");
             const fallbackMessage = document.getElementById("fallbackMessage");
+            const normalizedMapName = normalizeMapName(mapName);
+            const requestId = ++loadingState.mapImageRequestId;
 
-            if (!mapName) {
+            if (!normalizedMapName) {
                 fallbackMessage.textContent = "No map name";
                 fallbackMessage.style.display = "block";
                 return;
             }
 
+            loadingState.currentMapName = normalizedMapName;
+
             const basePath = "maps_ico/";
             const extensions = ["png", "jpg", "jpeg"];
             const fallbackImagePath = `${basePath}gm_construct.png`;
-            const primaryImagePaths = extensions.map((ext) => `${basePath}${mapName}.${ext}`);
+            const primaryImagePaths = extensions.map((ext) => `${basePath}${normalizedMapName}.${ext}?v=${encodeURIComponent(normalizedMapName)}`);
             const imageQueue = [...primaryImagePaths, fallbackImagePath];
 
             fallbackMessage.style.display = "none";
 
             function applyImage(src) {
+                if (requestId !== loadingState.mapImageRequestId) {
+                    return;
+                }
+
                 backgroundImage.src = src;
             }
 
             function tryLoadImage(index) {
+                if (requestId !== loadingState.mapImageRequestId) {
+                    return;
+                }
+
                 if (index >= imageQueue.length) {
-                    fallbackMessage.textContent = `Map preview not found: ${mapName}`;
+                    fallbackMessage.textContent = `Map preview not found: ${normalizedMapName}`;
                     fallbackMessage.style.display = "block";
                     return;
                 }
@@ -249,6 +299,20 @@
             tryLoadImage(0);
         }
 
+        function updateMapImage(mapName) {
+            const normalizedMapName = normalizeMapName(mapName);
+
+            if (!normalizedMapName) {
+                return;
+            }
+
+            if (loadingState.currentMapName === normalizedMapName) {
+                return;
+            }
+
+            setMapImage(normalizedMapName);
+        }
+
         function formatFileName(fileName) {
             if (!fileName) {
                 return "Waiting for next file";
@@ -268,23 +332,103 @@
             return `${parts[parts.length - 1]}  |  ${parts.slice(0, -1).join("/")}`;
         }
 
-        function finalizeActiveDownload() {
-            if (!loadingState.activeDownload) {
-                return;
+        function parseCount(value) {
+            const parsedValue = Number(value);
+
+            if (!Number.isFinite(parsedValue)) {
+                return null;
             }
 
-            const finishedEntry = {
-                name: loadingState.activeDownload.name,
-                state: DOWNLOAD_DONE_LABEL
-            };
+            return Math.max(0, Math.floor(parsedValue));
+        }
 
-            loadingState.completedDownloads.unshift(finishedEntry);
+        function pushCompletedEntry(name, state) {
+            loadingState.completedDownloads.unshift({ name, state });
             loadingState.completedDownloads = loadingState.completedDownloads.slice(0, MAX_VISIBLE_ROWS + 6);
+        }
+
+        function finalizeActiveDownload(doneLabel) {
+            if (!loadingState.activeDownload) {
+                return false;
+            }
+
+            pushCompletedEntry(
+                loadingState.activeDownload.name,
+                doneLabel || DOWNLOAD_DONE_LABEL
+            );
             loadingState.activeDownload = null;
+            return true;
+        }
+
+        function getProcessedFiles() {
+            if (typeof loadingState.filesTotal !== "number" || typeof loadingState.filesNeeded !== "number") {
+                return null;
+            }
+
+            return Math.max(0, loadingState.filesTotal - loadingState.filesNeeded);
+        }
+
+        function getProgressText() {
+            const processedFiles = getProcessedFiles();
+
+            if (processedFiles !== null && loadingState.filesTotal > 0) {
+                return `${processedFiles}/${loadingState.filesTotal} processed`;
+            }
+
+            if (typeof loadingState.filesNeeded === "number") {
+                return `${loadingState.filesNeeded} left`;
+            }
+
+            return STATUS_ACTIVE_LABEL;
+        }
+
+        function getStatusLineText() {
+            if (loadingState.activeDownload) {
+                return `${DOWNLOAD_ACTIVE_LABEL}: ${formatFileName(loadingState.activeDownload.name)}`;
+            }
+
+            if (loadingState.currentStatus) {
+                return `${loadingState.currentStatus} - ${getProgressText()}`;
+            }
+
+            if (typeof loadingState.filesTotal === "number") {
+                if (loadingState.filesTotal === 0) {
+                    return "No custom server files detected";
+                }
+
+                return `Preparing ${loadingState.filesTotal} server files`;
+            }
+
+            return "Preparing server files...";
+        }
+
+        function getSyntheticActiveEntry() {
+            if (loadingState.activeDownload) {
+                return null;
+            }
+
+            if (loadingState.currentStatus) {
+                return {
+                    name: loadingState.currentStatus,
+                    state: getProgressText(),
+                    active: true
+                };
+            }
+
+            if (typeof loadingState.filesNeeded === "number" || typeof loadingState.filesTotal === "number") {
+                return {
+                    name: "Checking server content",
+                    state: getProgressText(),
+                    active: true
+                };
+            }
+
+            return null;
         }
 
         function renderOverview() {
             document.getElementById("serverName").textContent = loadingState.serverName;
+            document.getElementById("statusLine").textContent = getStatusLineText();
         }
 
         function renderFeed() {
@@ -297,6 +441,13 @@
                     state: DOWNLOAD_ACTIVE_LABEL,
                     active: true
                 });
+            }
+            else {
+                const syntheticActiveEntry = getSyntheticActiveEntry();
+
+                if (syntheticActiveEntry) {
+                    entries.push(syntheticActiveEntry);
+                }
             }
 
             loadingState.completedDownloads.forEach((entry) => {
@@ -315,7 +466,7 @@
                 emptyRow.className = "feed-row";
                 emptyRow.innerHTML = `
                     <div class="feed-name">Waiting for first server file...</div>
-                    <div class="feed-state">(idle)</div>
+                    <div class="feed-state">(standby)</div>
                 `;
                 feed.appendChild(emptyRow);
                 return;
@@ -336,9 +487,7 @@
 
                 const state = document.createElement("div");
                 state.className = "feed-state";
-                state.textContent = entry.active
-                    ? `(${typeof loadingState.filesNeeded === "number" ? `${Math.max(loadingState.filesNeeded, 0)} left` : DOWNLOAD_ACTIVE_LABEL.toLowerCase()})`
-                    : `(${DOWNLOAD_DONE_LABEL.toLowerCase()})`;
+                state.textContent = `(${entry.state})`;
 
                 row.appendChild(name);
                 row.appendChild(state);
@@ -353,20 +502,41 @@
 
         window.GameDetails = function(servername, serverurl, mapname, maxplayers, steamid, gamemode, volume, language) {
             loadingState.serverName = servername || "Connecting to server";
-            setMapImage(mapname || "gm_construct");
+            updateMapImage(mapname || getMapNameFromUrl() || "gm_construct");
             renderLoadingScreen();
         };
 
         window.SetFilesTotal = function(total) {
+            loadingState.filesTotal = parseCount(total);
             renderLoadingScreen();
         };
 
         window.SetFilesNeeded = function(needed) {
-            const parsedNeeded = Number(needed);
-            loadingState.filesNeeded = Number.isFinite(parsedNeeded) ? parsedNeeded : null;
+            const previousNeeded = loadingState.filesNeeded;
+            const nextNeeded = parseCount(needed);
+            let processedDelta = 0;
+
+            loadingState.filesNeeded = nextNeeded;
+
+            if (typeof previousNeeded === "number" && typeof nextNeeded === "number" && nextNeeded < previousNeeded) {
+                processedDelta = previousNeeded - nextNeeded;
+            }
+
+            if (processedDelta > 0 && loadingState.activeDownload) {
+                finalizeActiveDownload(DOWNLOAD_DONE_LABEL);
+                processedDelta -= 1;
+            }
+
+            if (processedDelta > 0) {
+                const verifiedName = processedDelta === 1
+                    ? "Validated cached server file"
+                    : `Validated ${processedDelta} cached server files`;
+
+                pushCompletedEntry(verifiedName, VERIFY_DONE_LABEL);
+            }
 
             if (loadingState.filesNeeded === 0) {
-                finalizeActiveDownload();
+                finalizeActiveDownload(DOWNLOAD_DONE_LABEL);
             }
 
             renderLoadingScreen();
@@ -381,7 +551,9 @@
         };
 
         window.SetStatusChanged = function(status) {
-            const normalizedStatus = String(status || "").toLowerCase();
+            loadingState.currentStatus = String(status || "").trim();
+
+            const normalizedStatus = loadingState.currentStatus.toLowerCase();
             const shouldCloseCurrentDownload =
                 normalizedStatus.includes("sending client info") ||
                 normalizedStatus.includes("requesting lua files") ||
@@ -390,13 +562,13 @@
                 normalizedStatus.includes("starting lua");
 
             if (shouldCloseCurrentDownload) {
-                finalizeActiveDownload();
+                finalizeActiveDownload(DOWNLOAD_DONE_LABEL);
             }
 
             renderLoadingScreen();
         };
 
-        setMapImage("gm_construct");
+        setMapImage(getMapNameFromUrl() || "gm_construct");
         renderLoadingScreen();
     </script>
 </body>
