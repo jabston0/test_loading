@@ -46,31 +46,33 @@
                 container.innerHTML = '<div class="fallback">No map name</div>';
                 return;
             }
-
+        
             const basePath = 'maps_ico/';
-            const extensions = ['png', 'jpg', 'jpeg' , 'gif'];
-            
-            const tryExtension = (ext) => {
+            const extensions = ['png', 'jpg', 'jpeg'];
+            let currentExtIndex = 0;
+        
+            function tryLoad() {
+                if (currentExtIndex >= extensions.length) {
+                    container.innerHTML = `<div class="fallback">Map preview not found: ${mapName}</div>`;
+                    return;
+                }
+                const ext = extensions[currentExtIndex];
                 const img = new Image();
                 img.onload = () => {
                     container.innerHTML = '';
                     container.appendChild(img);
+                    img.style.maxWidth = '90%';
+                    img.style.maxHeight = '90%';
+                    img.style.objectFit = 'contain';
                 };
                 img.onerror = () => {
-                    const nextIndex = extensions.indexOf(ext) + 1;
-                    if (nextIndex < extensions.length) {
-                        tryExtension(extensions[nextIndex]);
-                    } else {
-                        container.innerHTML = `<div class="fallback">Map preview not found: ${mapName}</div>`;
-                    }
+                    currentExtIndex++;
+                    tryLoad();
                 };
                 img.src = `${basePath}${mapName}.${ext}`;
-                img.style.maxWidth = '90%';
-                img.style.maxHeight = '90%';
-                img.style.objectFit = 'contain';
-            };
-            
-            tryExtension(extensions[0]);
+            }
+        
+            tryLoad();
         }
 
         window.GameDetails = function(servername, serverurl, mapname, maxplayers, steamid, gamemode, volume, language) {
