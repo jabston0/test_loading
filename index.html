@@ -5,13 +5,10 @@
     <title>Orphan`s City Loading Screen Pro Verisa</title>
     <style>
         body {
-            margin: 0;
             background: #05070a;
             width: 100vw;
             height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            overflow: hidden;
         }
         .map-container {
             width: 100%;
@@ -23,7 +20,8 @@
         img {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: fill;
+            display: block;
         }
         .fallback {
             color: white;
