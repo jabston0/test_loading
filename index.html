@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Pipisya</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: #05070a;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Гигантская иконка карты на весь фон */
+        .map-icon-bg {
+            font-size: min(70vw, 70vh);
+            transition: all 0.2s ease;
+            text-align: center;
+            line-height: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="map-icon-bg" id="mapIcon"></div>
+
+    <script>
+
+        function getIconForMap(mapName) {
+            if (!mapName) return "ORPHAN`S CITY";
+            return "ORPHAN`S CITY";
+        }
+
+        window.GameDetails = function(servername, serverurl, mapname, maxplayers, steamid, gamemode, volume, language) {
+            if (mapname) {
+                const icon = getIconForMap(mapname);
+                document.getElementById('mapIcon').innerText = icon;
+            }
+        };
+
+        window.SetFilesTotal = function(total) {};
+        window.DownloadingFile = function(fileName) {};
+        window.SetStatusChanged = function(status) {};
+    </script>
+</body>
+</html>
