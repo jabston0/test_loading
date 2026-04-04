@@ -93,7 +93,7 @@
         .mode-line {
             margin-top: 14px;
             font-size: clamp(16px, 2vw, 22px);
-            color: var(--accent);
+            color: var(--text-main);
             letter-spacing: 0.02em;
             text-align: center;
             text-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
@@ -113,7 +113,8 @@
             gap: 4px;
             padding: 6px 0;
             transform: translateY(0);
-            transition: opacity 260ms ease, transform 260ms ease;
+            transition: opacity 320ms ease, transform 320ms ease, filter 320ms ease;
+            animation: feed-enter 320ms ease;
         }
 
         .feed-dot {
@@ -153,6 +154,18 @@
             left: 50%;
             transform: translate(-50%, -50%);
             z-index: 5;
+        }
+
+        @keyframes feed-enter {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         @media (max-width: 700px) {
@@ -383,23 +396,11 @@
         }
 
         function getStatusLineText() {
-            if (loadingState.activeDownload) {
-                return `${DOWNLOAD_ACTIVE_LABEL}: ${formatFileName(loadingState.activeDownload.name)}`;
+            if (loadingState.currentMapName) {
+                return loadingState.currentMapName;
             }
 
-            if (loadingState.currentStatus) {
-                return `${loadingState.currentStatus} - ${getProgressText()}`;
-            }
-
-            if (typeof loadingState.filesTotal === "number") {
-                if (loadingState.filesTotal === 0) {
-                    return "No custom server files detected";
-                }
-
-                return `Preparing ${loadingState.filesTotal} server files`;
-            }
-
-            return "Preparing server files...";
+            return "current map loading...";
         }
 
         function getSyntheticActiveEntry() {
@@ -474,12 +475,14 @@
 
             visibleEntries.forEach((entry, index) => {
                 const row = document.createElement("div");
-                const fade = Math.max(0.12, 1 - index * 0.1);
-                const drift = Math.min(index * 4, 24);
+                const fade = Math.max(0, 1 - index * 0.12);
+                const drift = Math.min(index * 10, 90);
+                const blur = Math.min(index * 0.18, 1.6);
 
                 row.className = `feed-row${entry.active ? " active" : ""}`;
                 row.style.opacity = String(fade);
                 row.style.transform = `translateY(${drift}px)`;
+                row.style.filter = `blur(${blur}px)`;
 
                 const name = document.createElement("div");
                 name.className = "feed-name";
