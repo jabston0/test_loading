@@ -101,19 +101,23 @@
 
         .download-feed {
             margin-top: 34px;
-            display: grid;
-            gap: 10px;
+            position: relative;
+            height: 360px;
+            overflow: hidden;
         }
 
         .feed-row {
+            position: absolute;
+            left: 0;
+            right: 0;
             display: grid;
             grid-template-columns: 1fr;
             align-items: center;
             justify-items: center;
             gap: 4px;
             padding: 6px 0;
-            transform: translateY(0);
-            transition: opacity 320ms ease, transform 320ms ease, filter 320ms ease;
+            will-change: transform, opacity, filter;
+            transition: opacity 420ms ease, transform 420ms ease, filter 420ms ease;
             animation: feed-enter 320ms ease;
         }
 
@@ -220,8 +224,10 @@
             currentStatus: "",
             currentMapName: null,
             mapImageRequestId: 0,
+            nextEntryId: 1,
             activeDownload: null,
-            completedDownloads: []
+            completedDownloads: [],
+            rowElements: new Map()
         };
 
         function normalizeMapName(mapName) {
@@ -356,7 +362,11 @@
         }
 
         function pushCompletedEntry(name, state) {
-            loadingState.completedDownloads.unshift({ name, state });
+            loadingState.completedDownloads.unshift({
+                id: loadingState.nextEntryId++,
+                name,
+                state
+            });
             loadingState.completedDownloads = loadingState.completedDownloads.slice(0, MAX_VISIBLE_ROWS + 6);
         }
 
@@ -453,6 +463,7 @@
 
             loadingState.completedDownloads.forEach((entry) => {
                 entries.push({
+                    id: entry.id,
                     name: entry.name,
                     state: entry.state,
                     active: false
@@ -460,41 +471,110 @@
             });
 
             const visibleEntries = entries.slice(0, MAX_VISIBLE_ROWS);
-            feed.innerHTML = "";
 
             if (!visibleEntries.length) {
-                const emptyRow = document.createElement("div");
-                emptyRow.className = "feed-row";
-                emptyRow.innerHTML = `
-                    <div class="feed-name">Waiting for first server file...</div>
-                    <div class="feed-state">(standby)</div>
-                `;
-                feed.appendChild(emptyRow);
+                const emptyKey = "__empty__";
+                let emptyRow = loadingState.rowElements.get(emptyKey);
+
+                if (!emptyRow) {
+                    emptyRow = document.createElement("div");
+                    emptyRow.className = "feed-row";
+                    emptyRow.innerHTML = `
+                        <div class="feed-name">Waiting for first server file...</div>
+                        <div class="feed-state">(standby)</div>
+                    `;
+                    loadingState.rowElements.set(emptyKey, emptyRow);
+                    feed.appendChild(emptyRow);
+                }
+
+                emptyRow.style.opacity = "1";
+                emptyRow.style.transform = "translateY(0px)";
+                emptyRow.style.filter = "blur(0px)";
+                emptyRow.style.pointerEvents = "none";
+
+                loadingState.rowElements.forEach((row, key) => {
+                    if (key !== emptyKey) {
+                        row.remove();
+                        loadingState.rowElements.delete(key);
+                    }
+                });
+
                 return;
             }
 
+            const nextKeys = new Set();
+
+            const emptyRow = loadingState.rowElements.get("__empty__");
+
+            if (emptyRow) {
+                emptyRow.style.opacity = "0";
+                emptyRow.style.filter = "blur(2px)";
+
+                setTimeout(() => {
+                    const currentEmptyRow = loadingState.rowElements.get("__empty__");
+
+                    if (currentEmptyRow === emptyRow) {
+                        emptyRow.remove();
+                        loadingState.rowElements.delete("__empty__");
+                    }
+                }, 430);
+            }
+
             visibleEntries.forEach((entry, index) => {
-                const row = document.createElement("div");
-                const fade = Math.max(0, 1 - index * 0.12);
-                const drift = Math.min(index * 10, 90);
-                const blur = Math.min(index * 0.18, 1.6);
+                const rowKey = entry.active ? "__active__" : `entry-${entry.id}`;
+                const topOffset = index * 42;
+                const fade = Math.max(0, 1 - index * 0.11);
+                const blur = Math.min(index * 0.22, 2.2);
+                let row = loadingState.rowElements.get(rowKey);
+
+                nextKeys.add(rowKey);
+
+                if (!row) {
+                    row = document.createElement("div");
+                    row.className = `feed-row${entry.active ? " active" : ""}`;
+
+                    const name = document.createElement("div");
+                    name.className = "feed-name";
+
+                    const state = document.createElement("div");
+                    state.className = "feed-state";
+
+                    row.appendChild(name);
+                    row.appendChild(state);
+                    row.style.opacity = "0";
+                    row.style.transform = "translateY(0px)";
+                    row.style.filter = "blur(0px)";
+
+                    loadingState.rowElements.set(rowKey, row);
+                    feed.appendChild(row);
+                }
 
                 row.className = `feed-row${entry.active ? " active" : ""}`;
-                row.style.opacity = String(fade);
-                row.style.transform = `translateY(${drift}px)`;
-                row.style.filter = `blur(${blur}px)`;
+                row.children[0].textContent = formatFileName(entry.name);
+                row.children[1].textContent = `(${entry.state})`;
 
-                const name = document.createElement("div");
-                name.className = "feed-name";
-                name.textContent = formatFileName(entry.name);
+                requestAnimationFrame(() => {
+                    row.style.opacity = String(fade);
+                    row.style.transform = `translateY(${topOffset}px)`;
+                    row.style.filter = `blur(${blur}px)`;
+                });
+            });
 
-                const state = document.createElement("div");
-                state.className = "feed-state";
-                state.textContent = `(${entry.state})`;
+            loadingState.rowElements.forEach((row, key) => {
+                if (nextKeys.has(key)) {
+                    return;
+                }
 
-                row.appendChild(name);
-                row.appendChild(state);
-                feed.appendChild(row);
+                row.style.opacity = "0";
+                row.style.filter = "blur(3px)";
+                row.style.transform = `translateY(${MAX_VISIBLE_ROWS * 42}px)`;
+
+                setTimeout(() => {
+                    if (!nextKeys.has(key) && loadingState.rowElements.get(key) === row) {
+                        row.remove();
+                        loadingState.rowElements.delete(key);
+                    }
+                }, 430);
             });
         }
 
