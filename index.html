@@ -1,52 +1,80 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Pipisya</title>
+    <title>Orphan`s City Loading Screen Pro Verisa</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            user-select: none;
-        }
-
         body {
+            margin: 0;
             background: #05070a;
             width: 100vw;
             height: 100vh;
-            overflow: hidden;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-
-        /* Гигантская иконка карты на весь фон */
-        .map-icon-bg {
-            font-size: min(70vw, 70vh);
-            transition: all 0.2s ease;
-            text-align: center;
-            line-height: 1;
+        .map-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        img {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+        }
+        .fallback {
+            color: white;
+            font-family: monospace;
+            font-size: 24px;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
         }
     </style>
 </head>
 <body>
-
-    <div class="map-icon-bg" id="mapIcon"></div>
+    <div class="map-container" id="mapContainer">
+        <div class="fallback"></div>
+    </div>
 
     <script>
+        function setMapImage(mapName) {
+            const container = document.getElementById('mapContainer');
+            if (!mapName) {
+                container.innerHTML = '<div class="fallback">No map name</div>';
+                return;
+            }
 
-        function getIconForMap(mapName) {
-            if (!mapName) return "ORPHAN`S CITY";
-            return "ORPHAN`S CITY";
+            const basePath = 'maps_ico/';
+            const extensions = ['png', 'jpg', 'jpeg' , 'gif'];
+            
+            const tryExtension = (ext) => {
+                const img = new Image();
+                img.onload = () => {
+                    container.innerHTML = '';
+                    container.appendChild(img);
+                };
+                img.onerror = () => {
+                    const nextIndex = extensions.indexOf(ext) + 1;
+                    if (nextIndex < extensions.length) {
+                        tryExtension(extensions[nextIndex]);
+                    } else {
+                        container.innerHTML = `<div class="fallback">Map preview not found: ${mapName}</div>`;
+                    }
+                };
+                img.src = `${basePath}${mapName}.${ext}`;
+                img.style.maxWidth = '90%';
+                img.style.maxHeight = '90%';
+                img.style.objectFit = 'contain';
+            };
+            
+            tryExtension(extensions[0]);
         }
 
         window.GameDetails = function(servername, serverurl, mapname, maxplayers, steamid, gamemode, volume, language) {
-            if (mapname) {
-                const icon = getIconForMap(mapname);
-                document.getElementById('mapIcon').innerText = icon;
-            }
+            setMapImage(mapname);
         };
 
         window.SetFilesTotal = function(total) {};
