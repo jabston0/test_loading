@@ -114,7 +114,7 @@
 
         .download-feed {
             position: absolute;
-            top: 43%;
+            top: 44%;
             left: 50%;
             width: 720px;
             max-width: 90%;
@@ -240,6 +240,7 @@
         const DEBUG_ANIMATION = new URLSearchParams(window.location.search).get("debug") === "1";
         const DOWNLOAD_ACTIVE_LABEL = "Downloading";
         const DOWNLOAD_DONE_LABEL = "Downloaded";
+        const STATUS_DONE_LABEL = "Step complete";
         const VERIFY_DONE_LABEL = "Already on client";
         const STATUS_ACTIVE_LABEL = "In progress";
 
@@ -295,9 +296,7 @@
             const requestId = ++loadingState.mapImageRequestId;
 
             if (!normalizedMapName) {
-                fallbackMessage.textContent = "No map name";
-                fallbackMessage.style.display = "block";
-                return;
+                return false;
             }
 
             loadingState.currentMapName = normalizedMapName;
@@ -354,6 +353,7 @@
             }
 
             tryLoadImage(0);
+            return true;
         }
 
         function updateMapImage(mapName) {
@@ -399,17 +399,18 @@
             return Math.max(0, Math.floor(parsedValue));
         }
 
-        function createFeedEntry(name, state, active) {
+        function createFeedEntry(name, state, active, kind) {
             return {
                 id: loadingState.nextEntryId++,
                 name,
                 state,
-                active: Boolean(active)
+                active: Boolean(active),
+                kind: kind || "generic"
             };
         }
 
         function pushCompletedEntry(name, state) {
-            loadingState.completedDownloads.unshift(createFeedEntry(name, state, false));
+            loadingState.completedDownloads.unshift(createFeedEntry(name, state, false, "generic"));
             loadingState.completedDownloads = loadingState.completedDownloads.slice(0, MAX_VISIBLE_ROWS + 6);
         }
 
@@ -424,7 +425,11 @@
             }
 
             loadingState.activeEntry.active = false;
-            loadingState.activeEntry.state = doneLabel || DOWNLOAD_DONE_LABEL;
+            loadingState.activeEntry.state = doneLabel || (
+                loadingState.activeEntry.kind === "status"
+                    ? STATUS_DONE_LABEL
+                    : DOWNLOAD_DONE_LABEL
+            );
             insertCompletedEntry(loadingState.activeEntry);
             loadingState.activeEntry = null;
             return true;
@@ -465,13 +470,8 @@
         }
 
         function getStatusEntry() {
-            if (loadingState.currentStatus) {
-                return {
-                    id: "status-entry",
-                    name: loadingState.currentStatus,
-                    state: getProgressText(),
-                    active: true
-                };
+            if (loadingState.activeEntry) {
+                return null;
             }
 
             if (typeof loadingState.filesNeeded === "number" || typeof loadingState.filesTotal === "number") {
@@ -669,7 +669,7 @@
 
         window.GameDetails = function(servername, serverurl, mapname, maxplayers, steamid, gamemode, volume, language) {
             loadingState.serverName = servername || "Connecting to server";
-            updateMapImage(mapname || getMapNameFromUrl() || "gm_construct");
+            updateMapImage(mapname || getMapNameFromUrl());
             renderLoadingScreen();
         };
 
@@ -689,7 +689,7 @@
                 processedDelta = previousNeeded - nextNeeded;
             }
 
-            if (processedDelta > 0 && loadingState.activeEntry) {
+            if (processedDelta > 0 && loadingState.activeEntry && loadingState.activeEntry.kind === "file") {
                 finalizeActiveDownload(DOWNLOAD_DONE_LABEL);
                 processedDelta -= 1;
             }
@@ -710,17 +710,37 @@
         };
 
         window.DownloadingFile = function(fileName) {
-            finalizeActiveDownload();
+            if (loadingState.activeEntry) {
+                finalizeActiveDownload(
+                    loadingState.activeEntry.kind === "status"
+                        ? STATUS_DONE_LABEL
+                        : DOWNLOAD_DONE_LABEL
+                );
+            }
+
             loadingState.activeEntry = createFeedEntry(
                 fileName || "Unknown file",
                 DOWNLOAD_ACTIVE_LABEL,
-                true
+                true,
+                "file"
             );
             renderLoadingScreen();
         };
 
         window.SetStatusChanged = function(status) {
-            loadingState.currentStatus = String(status || "").trim();
+            const nextStatus = String(status || "").trim();
+
+            if (!nextStatus) {
+                renderLoadingScreen();
+                return;
+            }
+
+            if (nextStatus === loadingState.currentStatus && loadingState.activeEntry && loadingState.activeEntry.kind === "status") {
+                renderLoadingScreen();
+                return;
+            }
+
+            loadingState.currentStatus = nextStatus;
 
             const normalizedStatus = loadingState.currentStatus.toLowerCase();
             const shouldCloseCurrentDownload =
@@ -730,8 +750,21 @@
                 normalizedStatus.includes("mounting addons") ||
                 normalizedStatus.includes("starting lua");
 
-            if (shouldCloseCurrentDownload) {
+            if (loadingState.activeEntry && loadingState.activeEntry.kind === "status") {
+                finalizeActiveDownload(STATUS_DONE_LABEL);
+            }
+
+            if (shouldCloseCurrentDownload && loadingState.activeEntry && loadingState.activeEntry.kind === "file") {
                 finalizeActiveDownload(DOWNLOAD_DONE_LABEL);
+            }
+
+            if (!shouldCloseCurrentDownload && (!loadingState.activeEntry || loadingState.activeEntry.kind !== "file")) {
+                loadingState.activeEntry = createFeedEntry(
+                    loadingState.currentStatus,
+                    STATUS_ACTIVE_LABEL,
+                    true,
+                    "status"
+                );
             }
 
             renderLoadingScreen();
@@ -782,7 +815,7 @@
             renderLoadingScreen();
         }
 
-        setMapImage(getMapNameFromUrl() || "gm_construct");
+        updateMapImage(getMapNameFromUrl());
         renderLoadingScreen();
         startDebugAnimation();
     </script>
