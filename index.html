@@ -134,8 +134,7 @@
             justify-items: center;
             gap: 4px;
             padding: 6px 0;
-            will-change: transform, opacity, filter;
-            transition: opacity 520ms ease, transform 520ms ease, filter 520ms ease;
+            transition: none;
         }
 
         .feed-dot {
@@ -235,8 +234,6 @@
     <script>
         const MAX_VISIBLE_ROWS = 10;
         const FEED_ROW_STEP = 46;
-        const FEED_REMOVE_Y = FEED_ROW_STEP * (MAX_VISIBLE_ROWS + 1);
-        const FEED_TRANSITION_MS = 520;
         const DEBUG_ANIMATION = new URLSearchParams(window.location.search).get("debug") === "1";
         const DOWNLOAD_ACTIVE_LABEL = "Downloading";
         const DOWNLOAD_DONE_LABEL = "Downloaded";
@@ -308,19 +305,7 @@
             const imageQueue = [...primaryImagePaths, fallbackImagePath];
 
             fallbackMessage.style.display = "none";
-
-            function applyImage(src, immediate) {
-                if (requestId !== loadingState.mapImageRequestId) {
-                    return;
-                }
-
-                if (immediate) {
-                    backgroundImage.src = src;
-                    return;
-                }
-
-                backgroundImage.src = src;
-            }
+            backgroundImage.fetchPriority = "high";
 
             function tryLoadImage(index) {
                 if (requestId !== loadingState.mapImageRequestId) {
@@ -334,22 +319,24 @@
                 }
 
                 const src = imageQueue[index];
-                const image = new Image();
 
-                if (index === 0) {
-                    applyImage(src, true);
-                }
+                backgroundImage.onload = () => {
+                    if (requestId !== loadingState.mapImageRequestId) {
+                        return;
+                    }
 
-                image.onload = () => {
-                    applyImage(src, false);
+                    fallbackMessage.style.display = "none";
                 };
 
-                image.onerror = () => {
+                backgroundImage.onerror = () => {
+                    if (requestId !== loadingState.mapImageRequestId) {
+                        return;
+                    }
+
                     tryLoadImage(index + 1);
                 };
 
-                image.fetchPriority = "high";
-                image.src = src;
+                backgroundImage.src = src;
             }
 
             tryLoadImage(0);
@@ -528,20 +515,7 @@
             };
         }
 
-        function removeRowLater(key, row) {
-            row.style.opacity = "0";
-            row.style.filter = "blur(4px)";
-            row.style.transform = `translateY(${FEED_REMOVE_Y}px) scale(0.96)`;
-
-            setTimeout(() => {
-                if (loadingState.rowElements.get(key) === row) {
-                    row.remove();
-                    loadingState.rowElements.delete(key);
-                }
-            }, FEED_TRANSITION_MS);
-        }
-
-        function getOrCreateRow(key, entry, feed) {
+        function getOrCreateRow(key, feed) {
             let row = loadingState.rowElements.get(key);
 
             if (row) {
@@ -559,21 +533,9 @@
 
             row.appendChild(name);
             row.appendChild(state);
-            row.style.opacity = "0";
-            row.style.filter = "blur(0px)";
-            row.style.transform = "translateY(-26px) scale(1)";
 
             loadingState.rowElements.set(key, row);
             feed.appendChild(row);
-
-            requestAnimationFrame(() => {
-                if (loadingState.rowElements.get(key) === row) {
-                    const metrics = getRowMetrics(0, entry.active);
-                    row.style.opacity = String(metrics.opacity);
-                    row.style.filter = `blur(${metrics.blur}px)`;
-                    row.style.transform = `translateY(${metrics.y}px) scale(${metrics.scale})`;
-                }
-            });
 
             return row;
         }
@@ -622,43 +584,37 @@
             const emptyRow = loadingState.rowElements.get("__empty__");
 
             if (emptyRow) {
-                emptyRow.style.opacity = "0";
-                emptyRow.style.filter = "blur(2px)";
-
-                setTimeout(() => {
-                    const currentEmptyRow = loadingState.rowElements.get("__empty__");
-
-                    if (currentEmptyRow === emptyRow) {
-                        emptyRow.remove();
-                        loadingState.rowElements.delete("__empty__");
-                    }
-                }, 430);
+                emptyRow.remove();
+                loadingState.rowElements.delete("__empty__");
             }
 
             visibleEntries.forEach((entry, index) => {
                 const rowKey = String(entry.id);
                 const metrics = getRowMetrics(index, entry.active);
-                const row = getOrCreateRow(rowKey, entry, feed);
+                const row = getOrCreateRow(rowKey, feed);
 
                 nextKeys.add(rowKey);
                 row.children[0].textContent = formatFileName(entry.name);
                 row.children[1].textContent = `(${entry.state})`;
-
-                requestAnimationFrame(() => {
-                    if (loadingState.rowElements.get(rowKey) === row) {
-                        row.style.opacity = String(metrics.opacity);
-                        row.style.filter = `blur(${metrics.blur}px)`;
-                        row.style.transform = `translateY(${metrics.y}px) scale(${metrics.scale})`;
-                    }
-                });
+                row.style.opacity = String(metrics.opacity);
+                row.style.filter = `blur(${metrics.blur}px)`;
+                row.style.transform = `translateY(${metrics.y}px) scale(${metrics.scale})`;
             });
 
-            loadingState.rowElements.forEach((row, key) => {
-                if (nextKeys.has(key)) {
-                    return;
-                }
+            const keysToRemove = [];
 
-                removeRowLater(key, row);
+            loadingState.rowElements.forEach((row, key) => {
+                if (!nextKeys.has(key)) {
+                    keysToRemove.push(key);
+                }
+            });
+
+            keysToRemove.forEach((key) => {
+                const row = loadingState.rowElements.get(key);
+                if (row) {
+                    row.remove();
+                    loadingState.rowElements.delete(key);
+                }
             });
         }
 
