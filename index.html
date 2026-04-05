@@ -58,25 +58,33 @@
             display: block;
         }
 
-        .top-logo {
+        .center-panel {
             position: absolute;
-            top: 90px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: min(420px, calc(100vw - 40px));
-            max-height: 170px;
-            object-fit: contain;
-            z-index: 2;
+            inset: 0;
+            z-index: 1;
         }
 
-        .center-panel {
+        .hero-meta {
             position: absolute;
             top: 50%;
             left: 50%;
-            transform: translate(-50%, -42%);
+            transform: translate(-50%, -50%);
             width: min(860px, calc(100vw - 36px));
-            padding: 18px 18px 0;
-            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .top-logo {
+            position: absolute;
+            top: calc(50% - 270px);
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(260px, calc(100vw - 60px));
+            max-height: 120px;
+            object-fit: contain;
         }
 
         .server-title {
@@ -91,7 +99,7 @@
         }
 
         .mode-line {
-            margin-top: 14px;
+            margin-top: 16px;
             font-size: clamp(16px, 2vw, 22px);
             color: var(--text-main);
             letter-spacing: 0.02em;
@@ -100,9 +108,12 @@
         }
 
         .download-feed {
-            margin-top: 34px;
-            position: relative;
-            height: 360px;
+            position: absolute;
+            top: calc(50% + 64px);
+            left: 50%;
+            transform: translateX(-50%);
+            height: min(420px, 42vh);
+            width: min(720px, calc(100vw - 36px));
             overflow: hidden;
         }
 
@@ -117,8 +128,7 @@
             gap: 4px;
             padding: 6px 0;
             will-change: transform, opacity, filter;
-            transition: opacity 420ms ease, transform 420ms ease, filter 420ms ease;
-            animation: feed-enter 320ms ease;
+            transition: opacity 520ms ease, transform 520ms ease, filter 520ms ease;
         }
 
         .feed-dot {
@@ -160,28 +170,21 @@
             z-index: 5;
         }
 
-        @keyframes feed-enter {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
         @media (max-width: 700px) {
-            .top-logo {
-                top: 18px;
-                width: min(320px, calc(100vw - 28px));
-                max-height: 120px;
+            .hero-meta {
+                width: min(100%, calc(100vw - 20px));
             }
 
-            .center-panel {
-                transform: translate(-50%, -36%);
-                padding: 22px 10px 0;
+            .top-logo {
+                top: calc(50% - 150px);
+                width: min(220px, calc(100vw - 36px));
+                max-height: 90px;
+            }
+
+            .download-feed {
+                top: calc(50% + 56px);
+                width: min(100%, calc(100vw - 20px));
+                height: min(320px, 36vh);
             }
         }
     </style>
@@ -193,16 +196,18 @@
             class="background-image"
             alt="Map background"
         >
-        <img
-            src="logo/logo.png"
-            class="top-logo"
-            alt="Logo"
-            onerror="this.style.display='none'"
-        >
 
         <section class="center-panel">
-            <h1 class="server-title" id="serverName">Connecting to server</h1>
-            <div class="mode-line" id="statusLine">Preparing server files...</div>
+            <img
+                src="logo/logo.png"
+                class="top-logo"
+                alt="Logo"
+                onerror="this.style.display='none'"
+            >
+            <div class="hero-meta">
+                <h1 class="server-title" id="serverName">Connecting to server</h1>
+                <div class="mode-line" id="statusLine">Preparing server files...</div>
+            </div>
             <div class="download-feed" id="downloadFeed"></div>
         </section>
 
@@ -211,9 +216,12 @@
 
     <script>
         const MAX_VISIBLE_ROWS = 10;
+        const FEED_ROW_STEP = 46;
+        const FEED_REMOVE_Y = FEED_ROW_STEP * (MAX_VISIBLE_ROWS + 1);
+        const FEED_TRANSITION_MS = 520;
+        const DEBUG_ANIMATION = new URLSearchParams(window.location.search).get("debug") === "1";
         const DOWNLOAD_ACTIVE_LABEL = "Downloading";
         const DOWNLOAD_DONE_LABEL = "Downloaded";
-        const VERIFY_ACTIVE_LABEL = "Checking";
         const VERIFY_DONE_LABEL = "Already on client";
         const STATUS_ACTIVE_LABEL = "In progress";
 
@@ -225,9 +233,11 @@
             currentMapName: null,
             mapImageRequestId: 0,
             nextEntryId: 1,
-            activeDownload: null,
+            activeEntry: null,
             completedDownloads: [],
-            rowElements: new Map()
+            rowElements: new Map(),
+            debugTimer: null,
+            debugPendingTimeout: null
         };
 
         function normalizeMapName(mapName) {
@@ -282,8 +292,13 @@
 
             fallbackMessage.style.display = "none";
 
-            function applyImage(src) {
+            function applyImage(src, immediate) {
                 if (requestId !== loadingState.mapImageRequestId) {
+                    return;
+                }
+
+                if (immediate) {
+                    backgroundImage.src = src;
                     return;
                 }
 
@@ -304,14 +319,19 @@
                 const src = imageQueue[index];
                 const image = new Image();
 
+                if (index === 0) {
+                    applyImage(src, true);
+                }
+
                 image.onload = () => {
-                    applyImage(src);
+                    applyImage(src, false);
                 };
 
                 image.onerror = () => {
                     tryLoadImage(index + 1);
                 };
 
+                image.fetchPriority = "high";
                 image.src = src;
             }
 
@@ -361,25 +381,34 @@
             return Math.max(0, Math.floor(parsedValue));
         }
 
-        function pushCompletedEntry(name, state) {
-            loadingState.completedDownloads.unshift({
+        function createFeedEntry(name, state, active) {
+            return {
                 id: loadingState.nextEntryId++,
                 name,
-                state
-            });
+                state,
+                active: Boolean(active)
+            };
+        }
+
+        function pushCompletedEntry(name, state) {
+            loadingState.completedDownloads.unshift(createFeedEntry(name, state, false));
+            loadingState.completedDownloads = loadingState.completedDownloads.slice(0, MAX_VISIBLE_ROWS + 6);
+        }
+
+        function insertCompletedEntry(entry) {
+            loadingState.completedDownloads.unshift(entry);
             loadingState.completedDownloads = loadingState.completedDownloads.slice(0, MAX_VISIBLE_ROWS + 6);
         }
 
         function finalizeActiveDownload(doneLabel) {
-            if (!loadingState.activeDownload) {
+            if (!loadingState.activeEntry) {
                 return false;
             }
 
-            pushCompletedEntry(
-                loadingState.activeDownload.name,
-                doneLabel || DOWNLOAD_DONE_LABEL
-            );
-            loadingState.activeDownload = null;
+            loadingState.activeEntry.active = false;
+            loadingState.activeEntry.state = doneLabel || DOWNLOAD_DONE_LABEL;
+            insertCompletedEntry(loadingState.activeEntry);
+            loadingState.activeEntry = null;
             return true;
         }
 
@@ -410,16 +439,17 @@
                 return loadingState.currentMapName;
             }
 
+            if (DEBUG_ANIMATION) {
+                return "debug animation mode";
+            }
+
             return "current map loading...";
         }
 
-        function getSyntheticActiveEntry() {
-            if (loadingState.activeDownload) {
-                return null;
-            }
-
+        function getStatusEntry() {
             if (loadingState.currentStatus) {
                 return {
+                    id: "status-entry",
                     name: loadingState.currentStatus,
                     state: getProgressText(),
                     active: true
@@ -428,13 +458,106 @@
 
             if (typeof loadingState.filesNeeded === "number" || typeof loadingState.filesTotal === "number") {
                 return {
+                    id: "status-entry",
                     name: "Checking server content",
                     state: getProgressText(),
                     active: true
                 };
             }
 
+            if (DEBUG_ANIMATION) {
+                return {
+                    id: "status-entry",
+                    name: "Debug animation idle",
+                    state: "waiting",
+                    active: true
+                };
+            }
+
             return null;
+        }
+
+        function getVisibleEntries() {
+            const entries = [];
+            const statusEntry = getStatusEntry();
+
+            if (loadingState.activeEntry) {
+                entries.push(loadingState.activeEntry);
+            }
+
+            if (statusEntry) {
+                entries.push(statusEntry);
+            }
+
+            loadingState.completedDownloads.forEach((entry) => {
+                entries.push(entry);
+            });
+
+            return entries.slice(0, MAX_VISIBLE_ROWS);
+        }
+
+        function getRowMetrics(index, active) {
+            const opacity = Math.max(0, 1 - index * 0.12);
+            const blur = Math.min(index * 0.24, 2.4);
+            const scale = Math.max(0.9, 1 - index * 0.015);
+            const y = index * FEED_ROW_STEP;
+
+            return {
+                opacity: active ? Math.max(opacity, 0.95) : opacity,
+                blur,
+                y,
+                scale
+            };
+        }
+
+        function removeRowLater(key, row) {
+            row.style.opacity = "0";
+            row.style.filter = "blur(4px)";
+            row.style.transform = `translateY(${FEED_REMOVE_Y}px) scale(0.96)`;
+
+            setTimeout(() => {
+                if (loadingState.rowElements.get(key) === row) {
+                    row.remove();
+                    loadingState.rowElements.delete(key);
+                }
+            }, FEED_TRANSITION_MS);
+        }
+
+        function getOrCreateRow(key, entry, feed) {
+            let row = loadingState.rowElements.get(key);
+
+            if (row) {
+                return row;
+            }
+
+            row = document.createElement("div");
+            row.className = "feed-row";
+
+            const name = document.createElement("div");
+            name.className = "feed-name";
+
+            const state = document.createElement("div");
+            state.className = "feed-state";
+
+            row.appendChild(name);
+            row.appendChild(state);
+            row.style.opacity = "0";
+            row.style.filter = "blur(0px)";
+            row.style.transform = "translateY(-26px) scale(1)";
+
+            loadingState.rowElements.set(key, row);
+            feed.appendChild(row);
+
+            requestAnimationFrame(() => {
+                if (loadingState.rowElements.get(key) === row) {
+                    const metrics = getRowMetrics(0, entry.active);
+                    row.style.opacity = String(metrics.opacity);
+                    row.style.filter = `blur(${metrics.blur}px)`;
+                    row.style.transform = `translateY(${metrics.y}px) scale(${metrics.scale})`;
+                }
+            });
+
+            return row;
         }
 
         function renderOverview() {
@@ -444,33 +567,7 @@
 
         function renderFeed() {
             const feed = document.getElementById("downloadFeed");
-            const entries = [];
-
-            if (loadingState.activeDownload) {
-                entries.push({
-                    name: loadingState.activeDownload.name,
-                    state: DOWNLOAD_ACTIVE_LABEL,
-                    active: true
-                });
-            }
-            else {
-                const syntheticActiveEntry = getSyntheticActiveEntry();
-
-                if (syntheticActiveEntry) {
-                    entries.push(syntheticActiveEntry);
-                }
-            }
-
-            loadingState.completedDownloads.forEach((entry) => {
-                entries.push({
-                    id: entry.id,
-                    name: entry.name,
-                    state: entry.state,
-                    active: false
-                });
-            });
-
-            const visibleEntries = entries.slice(0, MAX_VISIBLE_ROWS);
+            const visibleEntries = getVisibleEntries();
 
             if (!visibleEntries.length) {
                 const emptyKey = "__empty__";
@@ -488,7 +585,7 @@
                 }
 
                 emptyRow.style.opacity = "1";
-                emptyRow.style.transform = "translateY(0px)";
+                emptyRow.style.transform = "translateY(0px) scale(1)";
                 emptyRow.style.filter = "blur(0px)";
                 emptyRow.style.pointerEvents = "none";
 
@@ -521,42 +618,20 @@
             }
 
             visibleEntries.forEach((entry, index) => {
-                const rowKey = entry.active ? "__active__" : `entry-${entry.id}`;
-                const topOffset = index * 42;
-                const fade = Math.max(0, 1 - index * 0.11);
-                const blur = Math.min(index * 0.22, 2.2);
-                let row = loadingState.rowElements.get(rowKey);
+                const rowKey = String(entry.id);
+                const metrics = getRowMetrics(index, entry.active);
+                const row = getOrCreateRow(rowKey, entry, feed);
 
                 nextKeys.add(rowKey);
-
-                if (!row) {
-                    row = document.createElement("div");
-                    row.className = `feed-row${entry.active ? " active" : ""}`;
-
-                    const name = document.createElement("div");
-                    name.className = "feed-name";
-
-                    const state = document.createElement("div");
-                    state.className = "feed-state";
-
-                    row.appendChild(name);
-                    row.appendChild(state);
-                    row.style.opacity = "0";
-                    row.style.transform = "translateY(0px)";
-                    row.style.filter = "blur(0px)";
-
-                    loadingState.rowElements.set(rowKey, row);
-                    feed.appendChild(row);
-                }
-
-                row.className = `feed-row${entry.active ? " active" : ""}`;
                 row.children[0].textContent = formatFileName(entry.name);
                 row.children[1].textContent = `(${entry.state})`;
 
                 requestAnimationFrame(() => {
-                    row.style.opacity = String(fade);
-                    row.style.transform = `translateY(${topOffset}px)`;
-                    row.style.filter = `blur(${blur}px)`;
+                    if (loadingState.rowElements.get(rowKey) === row) {
+                        row.style.opacity = String(metrics.opacity);
+                        row.style.filter = `blur(${metrics.blur}px)`;
+                        row.style.transform = `translateY(${metrics.y}px) scale(${metrics.scale})`;
+                    }
                 });
             });
 
@@ -565,16 +640,7 @@
                     return;
                 }
 
-                row.style.opacity = "0";
-                row.style.filter = "blur(3px)";
-                row.style.transform = `translateY(${MAX_VISIBLE_ROWS * 42}px)`;
-
-                setTimeout(() => {
-                    if (!nextKeys.has(key) && loadingState.rowElements.get(key) === row) {
-                        row.remove();
-                        loadingState.rowElements.delete(key);
-                    }
-                }, 430);
+                removeRowLater(key, row);
             });
         }
 
@@ -605,7 +671,7 @@
                 processedDelta = previousNeeded - nextNeeded;
             }
 
-            if (processedDelta > 0 && loadingState.activeDownload) {
+            if (processedDelta > 0 && loadingState.activeEntry) {
                 finalizeActiveDownload(DOWNLOAD_DONE_LABEL);
                 processedDelta -= 1;
             }
@@ -627,9 +693,11 @@
 
         window.DownloadingFile = function(fileName) {
             finalizeActiveDownload();
-            loadingState.activeDownload = {
-                name: fileName || "Unknown file"
-            };
+            loadingState.activeEntry = createFeedEntry(
+                fileName || "Unknown file",
+                DOWNLOAD_ACTIVE_LABEL,
+                true
+            );
             renderLoadingScreen();
         };
 
@@ -651,8 +719,54 @@
             renderLoadingScreen();
         };
 
+        function startDebugAnimation() {
+            if (!DEBUG_ANIMATION || loadingState.debugTimer) {
+                return;
+            }
+
+            let debugIndex = 1;
+            let remaining = 14;
+
+            loadingState.serverName = "Debug Loading Screen";
+            loadingState.currentStatus = "Debug animation";
+            loadingState.filesTotal = remaining;
+            loadingState.filesNeeded = remaining;
+
+            loadingState.debugTimer = setInterval(() => {
+                const fileLabel = `Loading ${debugIndex}`;
+
+                window.DownloadingFile(fileLabel);
+
+                clearTimeout(loadingState.debugPendingTimeout);
+                loadingState.debugPendingTimeout = setTimeout(() => {
+                    remaining = Math.max(0, remaining - 1);
+                    window.SetFilesNeeded(remaining);
+
+                    if (remaining === 0) {
+                        clearInterval(loadingState.debugTimer);
+                        loadingState.debugTimer = null;
+
+                        setTimeout(() => {
+                            loadingState.completedDownloads = [];
+                            loadingState.activeEntry = null;
+                            loadingState.filesTotal = 14;
+                            loadingState.filesNeeded = 14;
+                            loadingState.currentStatus = "Debug animation restart";
+                            renderLoadingScreen();
+                            startDebugAnimation();
+                        }, 1200);
+                    }
+                }, 560);
+
+                debugIndex += 1;
+            }, 980);
+
+            renderLoadingScreen();
+        }
+
         setMapImage(getMapNameFromUrl() || "gm_construct");
         renderLoadingScreen();
+        startDebugAnimation();
     </script>
 </body>
 </html>
