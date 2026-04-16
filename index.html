@@ -300,7 +300,7 @@
 
             const basePath = "maps_ico/";
             const extensions = ["png", "jpg", "jpeg"];
-            const fallbackImagePath = `${basePath}gm_construct.png`;
+            const fallbackImagePath = `${basePath}no_icon.png`;
             const primaryImagePaths = extensions.map((ext) => `${basePath}${normalizedMapName}.${ext}?v=${encodeURIComponent(normalizedMapName)}`);
             const imageQueue = [...primaryImagePaths, fallbackImagePath];
 
