@@ -57,10 +57,19 @@
         }
 
         .background-image {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
             object-fit: cover;
             display: block;
+            opacity: 0;
+            transition: opacity 1.2s ease;
+            will-change: opacity;
+        }
+
+        .background-image.is-visible {
+            opacity: 1;
         }
 
         .center-panel {
@@ -209,9 +218,14 @@
 <body>
     <div class="map-container" id="mapContainer">
         <img
-            id="backgroundImage"
+            id="backgroundImageA"
+            class="background-image is-visible"
+            alt="Background screenshot"
+        >
+        <img
+            id="backgroundImageB"
             class="background-image"
-            alt="Map background"
+            alt="Background screenshot"
         >
 
         <section class="center-panel">
@@ -230,6 +244,9 @@
 
         <div class="fallback" id="fallbackMessage" style="display: none;"></div>
     </div>
+    <audio id="backgroundMusic" preload="auto" autoplay loop>
+        <source src="music/0421.WAV" type="audio/wav">
+    </audio>
 
     <script>
         const MAX_VISIBLE_ROWS = 10;
@@ -240,6 +257,17 @@
         const STATUS_DONE_LABEL = "Step complete";
         const VERIFY_DONE_LABEL = "Already on client";
         const STATUS_ACTIVE_LABEL = "In progress";
+        const BACKGROUND_ROTATION_INTERVAL = 5000;
+        const BACKGROUND_MUSIC_FILE = "music/0421.WAV";
+        const SCREENSHOT_FILES = [
+            "screenshotes/1.png",
+            "screenshotes/2.jpg",
+            "screenshotes/3.jpg",
+            "screenshotes/4.png",
+            "screenshotes/5.png",
+            "screenshotes/6.png",
+            "screenshotes/7.png",
+        ];
 
         const loadingState = {
             serverName: "Orphan`s City",
@@ -247,13 +275,17 @@
             filesNeeded: null,
             currentStatus: "",
             currentMapName: null,
-            mapImageRequestId: 0,
             nextEntryId: 1,
             activeEntry: null,
             completedDownloads: [],
             rowElements: new Map(),
             debugTimer: null,
-            debugPendingTimeout: null
+            debugPendingTimeout: null,
+            screenshotTimer: null,
+            screenshotQueue: [],
+            currentScreenshot: "",
+            activeBackgroundLayer: "A",
+            musicUnlockBound: false
         };
 
         function normalizeMapName(mapName) {
@@ -286,75 +318,122 @@
             }
         }
 
-        function setMapImage(mapName) {
-            const backgroundImage = document.getElementById("backgroundImage");
-            const fallbackMessage = document.getElementById("fallbackMessage");
-            const normalizedMapName = normalizeMapName(mapName);
-            const requestId = ++loadingState.mapImageRequestId;
+        function buildScreenshotQueue() {
+            const queue = SCREENSHOT_FILES.slice();
 
-            if (!normalizedMapName) {
-                return false;
+            for (let index = queue.length - 1; index > 0; index -= 1) {
+                const randomIndex = Math.floor(Math.random() * (index + 1));
+                const temp = queue[index];
+
+                queue[index] = queue[randomIndex];
+                queue[randomIndex] = temp;
             }
 
-            loadingState.currentMapName = normalizedMapName;
+            if (queue.length > 1 && queue[0] === loadingState.currentScreenshot) {
+                const firstAlternativeIndex = queue.findIndex((file) => file !== loadingState.currentScreenshot);
 
-            const basePath = "maps_ico/";
-            const extensions = ["png", "jpg", "jpeg"];
-            const fallbackImagePath = `${basePath}no_icon.png`;
-            const primaryImagePaths = extensions.map((ext) => `${basePath}${normalizedMapName}.${ext}?v=${encodeURIComponent(normalizedMapName)}`);
-            const imageQueue = [...primaryImagePaths, fallbackImagePath];
-
-            fallbackMessage.style.display = "none";
-            backgroundImage.fetchPriority = "high";
-
-            function tryLoadImage(index) {
-                if (requestId !== loadingState.mapImageRequestId) {
-                    return;
+                if (firstAlternativeIndex > 0) {
+                    const temp = queue[0];
+                    queue[0] = queue[firstAlternativeIndex];
+                    queue[firstAlternativeIndex] = temp;
                 }
-
-                if (index >= imageQueue.length) {
-                    fallbackMessage.textContent = `Map preview not found: ${normalizedMapName}`;
-                    fallbackMessage.style.display = "block";
-                    return;
-                }
-
-                const src = imageQueue[index];
-
-                backgroundImage.onload = () => {
-                    if (requestId !== loadingState.mapImageRequestId) {
-                        return;
-                    }
-
-                    fallbackMessage.style.display = "none";
-                };
-
-                backgroundImage.onerror = () => {
-                    if (requestId !== loadingState.mapImageRequestId) {
-                        return;
-                    }
-
-                    tryLoadImage(index + 1);
-                };
-
-                backgroundImage.src = src;
             }
 
-            tryLoadImage(0);
-            return true;
+            return queue;
         }
 
-        function updateMapImage(mapName) {
-            const normalizedMapName = normalizeMapName(mapName);
+        function getNextScreenshot() {
+            if (!SCREENSHOT_FILES.length) {
+                return "";
+            }
 
-            if (!normalizedMapName) {
+            if (!loadingState.screenshotQueue.length) {
+                loadingState.screenshotQueue = buildScreenshotQueue();
+            }
+
+            return loadingState.screenshotQueue.shift() || "";
+        }
+
+        function showScreenshot(src) {
+            const fallbackMessage = document.getElementById("fallbackMessage");
+            const backgroundImageA = document.getElementById("backgroundImageA");
+            const backgroundImageB = document.getElementById("backgroundImageB");
+            const activeImage = loadingState.activeBackgroundLayer === "A" ? backgroundImageA : backgroundImageB;
+            const nextImage = loadingState.activeBackgroundLayer === "A" ? backgroundImageB : backgroundImageA;
+
+            if (!src) {
+                fallbackMessage.textContent = "No screenshots found in screenshotes";
+                fallbackMessage.style.display = "block";
                 return;
             }
 
-            if (loadingState.currentMapName === normalizedMapName) {
+            const preloadImage = new Image();
+
+            preloadImage.onload = () => {
+                nextImage.src = src;
+                nextImage.classList.add("is-visible");
+                activeImage.classList.remove("is-visible");
+                loadingState.activeBackgroundLayer = loadingState.activeBackgroundLayer === "A" ? "B" : "A";
+                loadingState.currentScreenshot = src;
+                fallbackMessage.style.display = "none";
+            };
+
+            preloadImage.onerror = () => {
+                fallbackMessage.textContent = `Failed to load screenshot: ${src}`;
+                fallbackMessage.style.display = "block";
+            };
+
+            preloadImage.src = src;
+        }
+
+        function rotateBackgroundScreenshot() {
+            showScreenshot(getNextScreenshot());
+        }
+
+        function startBackgroundRotation() {
+            rotateBackgroundScreenshot();
+
+            if (loadingState.screenshotTimer) {
+                clearInterval(loadingState.screenshotTimer);
+            }
+
+            loadingState.screenshotTimer = setInterval(() => {
+                rotateBackgroundScreenshot();
+            }, BACKGROUND_ROTATION_INTERVAL);
+        }
+
+        function startBackgroundMusic() {
+            const audio = document.getElementById("backgroundMusic");
+
+            if (!audio) {
                 return;
             }
 
-            setMapImage(normalizedMapName);
+            audio.src = BACKGROUND_MUSIC_FILE;
+            audio.volume = 1;
+
+            const playPromise = audio.play();
+
+            if (!playPromise || typeof playPromise.then !== "function") {
+                return;
+            }
+
+            playPromise.catch(() => {
+                if (loadingState.musicUnlockBound) {
+                    return;
+                }
+
+                const unlockAudio = () => {
+                    audio.play().catch(() => {});
+                    window.removeEventListener("pointerdown", unlockAudio);
+                    window.removeEventListener("keydown", unlockAudio);
+                    loadingState.musicUnlockBound = false;
+                };
+
+                loadingState.musicUnlockBound = true;
+                window.addEventListener("pointerdown", unlockAudio, { once: true });
+                window.addEventListener("keydown", unlockAudio, { once: true });
+            });
         }
 
         function formatFileName(fileName) {
@@ -625,7 +704,7 @@
 
         window.GameDetails = function(servername, serverurl, mapname, maxplayers, steamid, gamemode, volume, language) {
             loadingState.serverName = servername || "Connecting to server";
-            updateMapImage(mapname || getMapNameFromUrl());
+            loadingState.currentMapName = normalizeMapName(mapname || getMapNameFromUrl());
             renderLoadingScreen();
         };
 
@@ -771,7 +850,9 @@
             renderLoadingScreen();
         }
 
-        updateMapImage(getMapNameFromUrl());
+        loadingState.currentMapName = getMapNameFromUrl();
+        startBackgroundRotation();
+        startBackgroundMusic();
         renderLoadingScreen();
         startDebugAnimation();
     </script>
